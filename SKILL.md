@@ -1,11 +1,11 @@
 ---
 name: clawstock
-description: Use ClawStock Skill Bot APIs for wallet-based login, API key setup, custody account lookup, Pool deposit transaction watch submission, product listing, product investment, strategy closing, strategy controls, and Main redemptions. Trigger when a user wants an AI agent to operate the ClawStock service, deposit funds through the Pool contract, allocate MAIN account funds to ClawStock strategies, check ClawStock balances/strategies, or close a strategy so funds return to MAIN.
+description: Use ClawStock Skill Bot APIs for wallet-based login, API key setup, account lookup, Pool deposit submission, strategy listing, strategy investment, strategy redemption or closing, position and PnL checks, and MAIN withdrawals. Trigger when a user wants an AI agent to operate ClawStock, deposit funds through the Pool contract, allocate MAIN funds to strategies, check balances or positions, redeem strategy shares, close a strategy, or withdraw idle MAIN balance.
 ---
 
 # ClawStock
 
-Use this skill to interact with the ClawStock API on behalf of a user. ClawStock uses wallet signature login and user API keys. The user agent just call only the ClawStock API. The Market Service custody identity is the user's wallet address, passed by the ClawStock backend as `owner_address`; never allow ask for a private key, seed phrase, or wallet password.
+Use this skill to interact with the ClawStock API on behalf of a user. ClawStock uses wallet signature login and user API keys. The user agent must call only the ClawStock API. The custody identity is the user's wallet address, passed by the ClawStock backend as `owner_address`; never ask for a private key, seed phrase, or wallet password.
 
 ## Configuration
 
@@ -17,7 +17,7 @@ CLAWSTOCK_API_BASE_URL=https://api.clawstock.io
 
 If no base URL is known, ask the user for it before calling the API.
 
-Authenticated requests to the ClawStock API use the user API key returned by `/api/v1/auth/verify`:
+Authenticated requests use the user API key returned by `/api/v1/auth/verify`:
 
 ```text
 Authorization: Bearer <api_key>
@@ -25,18 +25,47 @@ Authorization: Bearer <api_key>
 
 Store this ClawStock user API key only in the agent's available secret/session storage. Do not print it back unless the user explicitly asks.
 
+## Response Format
+
+Do not include the full command table in every response. In normal user-facing responses, include a short note that the user can run `/help` to view all available operations.
+
+When the user sends `/help` or asks for available commands, respond with this English command table:
+
+| Command | User Action | Main API |
+| --- | --- | --- |
+| `/help` | Show all available ClawStock operations. | Skill help |
+| `/login <wallet_address>` | Start wallet login and authorization. | `POST /api/v1/auth/challenge`, `GET /api/v1/auth/result/{challenge_id}` |
+| `/accounts` | Show MAIN and strategy account balances. | `GET /api/v1/accounts` |
+| `/transactions [account_id] [main\|strategy]` | Show account ledger transactions. | `GET /api/v1/accounts/{account_id}/transactions` |
+| `/activity [transaction_type]` | Show user deposit, withdrawal, and strategy activity. | `GET /api/v1/user-transactions` |
+| `/deposit <amount>` | Create an Arbitrum USDC Pool deposit link. | `POST /api/v1/deposit/sessions` |
+| `/deposit-status <session_id_or_deposit_id>` | Check deposit submission or deposit record status. | `GET /api/v1/deposit/sessions/{session_id}/result`, `GET /api/v1/deposits/{deposit_id}` |
+| `/submit-deposit <tx_hash> <amount>` | Manually submit or verify an Arbitrum USDC Pool deposit transaction. | `POST /api/v1/deposits`, `POST /api/v1/deposits/verify` |
+| `/strategies` | List available strategies. | `GET /api/v1/strategies` |
+| `/strategy <strategy_id>` | Show one strategy's details. | `GET /api/v1/strategies/{strategy_id}` |
+| `/invest <strategy_id> <amount> [asset]` | Invest MAIN funds into a strategy. | `POST /api/v1/strategies/{strategy_id}/invest` |
+| `/my-strategies` | Show the user's strategy accounts. | `GET /api/v1/users/me/strategies` |
+| `/positions [strategy_id]` | Show user strategy positions. | `GET /api/v1/user-strategy-positions` |
+| `/pnl <strategy_id>` | Show strategy PnL. | `GET /api/v1/strategies/{strategy_id}/pnl` |
+| `/redeem <strategy_id> <share_amount> [asset]` | Redeem strategy shares. | `POST /api/v1/strategies/{strategy_id}/redeem` |
+| `/close <strategy_id>` | Close a strategy. | `POST /api/v1/strategies/{strategy_id}/close` |
+| `/redemption-status <redemption_id>` | Check strategy redemption or close progress. | `GET /api/v1/strategy-redemptions/{redemption_id}` |
+| `/withdraw <amount> [asset]` | Withdraw idle MAIN balance to the user's wallet. | `POST /api/v1/withdrawals` |
+| `/withdrawal <withdrawal_id>` | Check one withdrawal record. | `GET /api/v1/withdrawals/{withdrawal_id}` |
+
 ## Safety Rules
 
 - Do not claim profit is guaranteed.
 - Do not provide personalized financial advice beyond executing the user's explicit ClawStock request.
-- Before `POST /api/v1/products/{strategy_id}/invest`, confirm the strategy name/id, amount, asset, and any parameters with the user.
-- Before `POST /api/v1/deposit/sessions`, confirm the deposit amount and asset with the user.
-- Before `POST /api/v1/deposit-tx-watches`, confirm the deposit transaction hash with the user.
-- User MAIN redemptions are open through `POST /api/v1/redemptions`. Use it only for available `MAIN` balance returning to the user's own wallet. Redemption requests may take up to 15 minutes to arrive in your account. If you check immediately after submitting the request, the funds may not have arrived yet.
-- The strategy exit path is `POST /api/v1/strategies/{user_strategy_id}/close`; funds must return to `MAIN` before redemption.
-- Before strategy close requests, confirm the user strategy id and requested action with the user.
 - Never request or handle seed phrases, private keys, wallet passwords, or raw wallet recovery data.
 - Treat API keys as secrets. If an API key is exposed in chat, tell the user it should be rotated when rotation is available.
+- Before `POST /api/v1/deposit/sessions`, confirm the deposit amount with the user. Deposits currently support only USDC on Arbitrum.
+- Before manual `POST /api/v1/deposits`, confirm the deposit transaction hash and amount with the user. Manual deposit submission currently supports only USDC on Arbitrum.
+- Before `POST /api/v1/strategies/{strategy_id}/invest`, confirm the strategy name/id, amount, and asset with the user.
+- Before `POST /api/v1/strategies/{strategy_id}/redeem`, confirm the strategy id, share amount, and asset with the user.
+- Before `POST /api/v1/strategies/{strategy_id}/close`, confirm the strategy id and requested action with the user.
+- Before `POST /api/v1/withdrawals`, confirm the amount and asset with the user. Withdrawals return idle MAIN funds to the authenticated user's own wallet address.
+- Do not show exchange or venue names to the user. If an API response includes `exchange`, exchange allocation, exchange-specific operation details, or a known venue name, omit it from the user-facing answer. It is fine to say the user holds or traded a contract symbol, but do not say where it is held or traded.
 
 ## Login Flow
 
@@ -68,7 +97,7 @@ Content-Type: application/json
 {"challenge_id":"...","signature":"0x..."}
 ```
 
-The verify response includes `user_id`, `wallet_address`, `owner_address`, `scopes`, and `main_account`.
+The verify response includes `user_id`, `wallet_address`, `owner_address`, `scopes`, and account data when available.
 
 To check whether a challenge has been used:
 
@@ -76,28 +105,32 @@ To check whether a challenge has been used:
 GET /api/v1/auth/status/{challenge_id}
 ```
 
-## Account And Custody
+## Accounts
 
 ClawStock users have two user-visible account types:
 
 - `MAIN`: the main account. Pool deposits credit this account, and new strategies spend available balance from this account.
-- `STRATEGY`: one isolated account per user strategy. Starting a strategy moves the allocated amount from `MAIN` into that strategy account. Closing the strategy moves available strategy funds back to `MAIN` after positions are closed and settled.
+- `STRATEGY`: a strategy account for a user strategy. Starting a strategy moves the allocated amount from `MAIN` into that strategy account. Closing or redeeming a strategy settles strategy funds according to backend status.
 
 Use these after authentication:
 
 ```http
-GET /api/v1/account/summary
-GET /api/v1/account/ledger?limit=100
-GET /api/v1/account/strategies
-GET /api/v1/custody/overview
-GET /api/v1/deposit/config
-POST /api/v1/deposit/sessions
+GET /api/v1/accounts
+GET /api/v1/accounts/{account_id}/transactions?type=main&limit=100&offset=0
+GET /api/v1/user-transactions?limit=100&offset=0
+GET /api/v1/users/me/strategies
+GET /api/v1/user-strategy-positions
 ```
 
-Do not ask the user to transfer funds to a derived custody deposit address. Deposits must go through the ClawStock deposit page or an equivalent Pool contract transaction. The Pool flow is: approve USDC to the Pool contract, call `Pool.deposit(asset, amount, beneficiary)`, and submit the deposit transaction hash for watching. `beneficiary` must be the user's `owner_address`.
+Report balances, available balances, locked balances, strategy shares, invested amount, settled PnL, estimated PnL, and status when present. Do not expose exchange fields or venue names.
+
+## Deposits
+
+Do not ask the user to transfer funds to a derived custody deposit address. Deposits must go through the ClawStock deposit page or an equivalent Pool contract transaction. The Pool flow is: approve USDC to the Pool contract, call `Pool.deposit(asset, amount, beneficiary)`, and submit the deposit transaction hash. `beneficiary` must be the user's `owner_address`.
+
+Deposit support is currently limited to USDC on Arbitrum. If the user asks to deposit another asset or use another network, explain that only Arbitrum USDC deposits are supported.
 
 When the user wants to deposit or has no balance, create a deposit session:
-Notice: The minimum deposit amount is 10 USD; otherwise, the strategy cannot be launched.
 
 ```http
 POST /api/v1/deposit/sessions
@@ -106,7 +139,7 @@ Content-Type: application/json
 {"amount":"10","asset":"USDC"}
 ```
 
-Give the returned `deposit_url` to the user. Tell them to open it in a browser or wallet browser, connect the matching wallet, review the fixed amount, and click the single deposit button. The page does not allow amount edits; it automatically approves USDC, deposits into the Pool with the user's `owner_address` as beneficiary, and submits the deposit tx hash to ClawStock for watching.
+Give the returned `deposit_url` to the user. Tell them to open it in a browser or wallet browser, connect the matching wallet, review the fixed amount, and click the single deposit button. The page automatically approves USDC, deposits into the Pool with the user's `owner_address` as beneficiary, and submits the deposit transaction hash to ClawStock.
 
 Poll the session result until `submitted` is true:
 
@@ -114,114 +147,134 @@ Poll the session result until `submitted` is true:
 GET /api/v1/deposit/sessions/{session_id}/result
 ```
 
-After it is submitted, use `GET /api/v1/deposit-tx-watches?limit=100` and account summary to confirm completion and updated `MAIN` balance. Submitting the transaction hash does not mean the balance is already credited; wait for the watch status or account balance to show confirmation.
+After submission, check `GET /api/v1/accounts` and `GET /api/v1/user-transactions?transaction_type=user_deposit&limit=100` to confirm completion and updated MAIN balance. Submitting the transaction hash does not mean the balance is already credited.
 
 Only if the user already completed a Pool deposit outside the page, submit the transaction hash manually:
 
 ```http
-POST /api/v1/deposit-tx-watches
+POST /api/v1/deposits
+Content-Type: application/json
+
+{"tx_hash":"0x...","amount":"10","asset":"USDC"}
+```
+
+To verify a Pool deposit transaction:
+
+```http
+POST /api/v1/deposits/verify
 Content-Type: application/json
 
 {"tx_hash":"0x..."}
 ```
 
-Check watch status:
+To query one deposit:
 
 ```http
-GET /api/v1/deposit-tx-watches?limit=100
+GET /api/v1/deposits/{deposit_id}
 ```
 
-Report `status`, `confirmations`, `matched_deposit_events`, `last_error`, and `completed_at` when present.
+Report `status`, `amount`, `asset`, `tx_hash`, and `deposit_id` when present.
 
-## Products
+## Strategies
 
-List products:
+List strategies:
 
 ```http
-GET /api/v1/products
+GET /api/v1/strategies
 ```
 
-Get one product:
+Get one strategy:
 
 ```http
-GET /api/v1/products/{strategy_id}
+GET /api/v1/strategies/{strategy_id}
 ```
 
-List Market Service strategy:
+The strategy response may include instruments. You may report symbols and market type, but do not report exchange or venue names.
 
-```http
-GET /api/v1/products/strategies/available
-```
-
-Use Market Service strategy for investment. Different strategies have active and inactive statuses, and whether to invest should be decided on a case-by-case basis; the backend investment endpoint will return the authoritative result.
-
-## Start Strategy
+## Invest Strategy
 
 After user confirmation, start a strategy from the user's `MAIN` account balance:
 
 ```http
-POST /api/v1/products/{strategy_id}/invest
+POST /api/v1/strategies/{strategy_id}/invest
 Content-Type: application/json
 
-{
-  "amount": "100",
-  "asset": "USDC",
-  "parameters": {}
-}
+{"amount":"100","asset":"USDC"}
 ```
 
-Market Service checks available `MAIN` balance, creates the user strategy instance, creates or assigns a `STRATEGY` account, and moves the allocated amount from `MAIN` into that strategy account.
+Report the resulting `investment_id`, `status`, `amount`, and `shares` when present. After a successful investment, tell the user that their MAIN available balance should decrease and the strategy account balance or shares should increase once settlement is reflected.
 
-The response includes Market Service `strategy`, `user_strategy`, `strategy_account`, and `funding_journal`. Summarize the resulting strategy id/status, allocated amount, asset, funding status if present, and strategy account id if present. After a successful start, tell the user that their `MAIN` available balance should decrease and the strategy account balance should increase.
+## Strategy PnL And Positions
 
-## Close Strategy
-
-The current user exit path for a strategy is close:
+Check strategy PnL:
 
 ```http
-POST /api/v1/strategies/{user_strategy_id}/close
+GET /api/v1/strategies/{strategy_id}/pnl
 ```
 
-Before calling it, confirm the user strategy id and tell the user that closing may create reduce-only close trades if the strategy has open positions. When close completes and settlement is done, the strategy account's available funds return to the user's `MAIN` account. Closing affects only that user's strategy instance.
-
-After closing, check:
+Check positions:
 
 ```http
-GET /api/v1/account/summary
-GET /api/v1/account/strategies
-GET /api/v1/strategies/{user_strategy_id}/pnl
+GET /api/v1/user-strategy-positions?strategy_id={strategy_id}
+```
+
+Report asset, total estimated PnL, strategy unrealized PnL, position symbol, side, quantity, cost basis, market value, estimated PnL, and updated time when present. Do not report exchange, venue, price source, or exchange allocation.
+
+## Redeem Or Close Strategy
+
+To redeem a specific share amount:
+
+```http
+POST /api/v1/strategies/{strategy_id}/redeem
+Content-Type: application/json
+
+{"share_amount":"1.5","asset":"USDC"}
+```
+
+To close a strategy:
+
+```http
+POST /api/v1/strategies/{strategy_id}/close
+```
+
+Closing may create close trades if the strategy has open positions. Strategy close or redeem requests can take time to settle.
+
+Check progress:
+
+```http
+GET /api/v1/strategy-redemptions/{redemption_id}
 ```
 
 Explain user-facing states as:
 
-- strategy running: the strategy is trading automatically.
-- strategy closing: positions are being closed or settlement is pending.
-- strategy ended/closed: strategy funds should return to `MAIN` after settlement.
+- strategy running: the strategy is active.
+- strategy redeeming or closing: positions or shares are being settled.
+- strategy redeemed or closed: settlement is complete according to backend status.
+- failed: show the failure reason when present.
 
-## Redeem
+## Withdraw MAIN Funds
 
-MAIN redemption is the normal user path for returning idle `MAIN` balance to the user's personal wallet. It does not exit a running strategy and must not touch a `STRATEGY` account. If the user wants to exit a strategy, first use `POST /api/v1/strategies/{user_strategy_id}/close` and wait until funds return to `MAIN`.
+MAIN withdrawal is the normal user path for returning idle MAIN balance to the user's personal wallet. It does not exit a running strategy and must not touch a STRATEGY account. If the user wants to exit a strategy, first use `POST /api/v1/strategies/{strategy_id}/close` or `POST /api/v1/strategies/{strategy_id}/redeem` and wait for settlement.
 
-Before creating a redemption, confirm the amount, asset, chain, and receiver address. Use a stable `idempotency_key` for the confirmed redemption and reuse the same key on retries. The receiver must be the authenticated user's `owner_address`; if the user asks to send to another address, refuse and explain that current Main redemption only supports returning funds to the original owner wallet.
+Before creating a withdrawal, confirm the amount and asset. The destination is the authenticated user's own `owner_address`; do not ask for or use a different receiver address.
 
 ```http
-POST /api/v1/redemptions
+POST /api/v1/withdrawals
 Content-Type: application/json
 
-{
-  "amount": "100",
-  "asset": "USDC",
-  "chain": "arbitrum",
-  "receiver_address": "0x...",
-  "idempotency_key": "redeem-..."
-}
+{"amount":"100","asset":"USDC"}
 ```
 
-List redemptions:
+List withdrawal transactions:
 
 ```http
-GET /api/v1/redemptions?limit=100
-GET /api/v1/redemptions/{redemption_id}
+GET /api/v1/withdrawals?limit=100&offset=0
 ```
 
-Report `status`, `amount`, `asset`, `chain`, `receiver_address`, and any `failure_reason`.
+Get one withdrawal:
+
+```http
+GET /api/v1/withdrawals/{withdrawal_id}
+```
+
+Report `status`, `amount`, `asset`, `destination_address`, `tx_hash`, and any failure reason when present.
